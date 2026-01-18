@@ -1,5 +1,4 @@
-# app.py - FULLY ENHANCED HBV SPONSOR OUTREACH AGENT (2026 Edition)
-# Works on PythonAnywhere, Anvil, Render, Streamlit Sharing (with secrets), etc.
+# app.py - HBV Sponsor Outreach Agent (Updated for AutoGen 0.7.x / autogen-agentchat - Jan 2026)
 
 import os
 import streamlit as st
@@ -26,10 +25,11 @@ def log_action(action: str, details: str = ""):
     logging.info(f"{action} | {details}")
     print(f"LOG: {action} | {details}")
 
-# Rate limiting (safe for Gmail free account)
-def rate_limit(seconds_between_emails: int = 4):
+# Rate limiting for emails (safe for Gmail)
+def rate_limit(seconds_between_emails: int = 5):
     last_called = 0
     def decorator(func):
+        @wraps(func)
         def wrapper(*args, **kwargs):
             nonlocal last_called
             elapsed = time.time() - last_called
@@ -123,7 +123,7 @@ def send_email(to_email: str, subject: str, body_html: str, from_email: str,
         server.sendmail(from_email, to_email, msg.as_string())
         server.quit()
         
-        log_action("EMAIL SENT", f"To: {to_email} | Subject: {subject}")
+        log_action("EMAIL SENT", f"To: {to_email}")
         return f"✅ Sent to {to_email}"
     except Exception as e:
         error_msg = f"Failed to {to_email}: {str(e)}"
@@ -142,8 +142,10 @@ def calculate_priority(description: str) -> int:
         if kw in desc: score += 8
     return min(score, 100)
 
-# ====================== AUTOGEN SETUP ======================
-from autogen import AssistantAgent, UserProxyAgent, GroupChat, GroupChatManager, register_function
+# ====================== AUTOGEN SETUP (2026 version - autogen-agentchat) ======================
+from autogen_agentchat.agents import AssistantAgent, UserProxyAgent
+from autogen_agentchat.teams import GroupChat, GroupChatManager
+from autogen_agentchat import register_function
 
 llm_config = {
     "config_list": [{"model": "gpt-4o-mini", "api_key": os.getenv("OPENAI_API_KEY")}],
@@ -196,19 +198,19 @@ manager = GroupChatManager(groupchat=groupchat, llm_config=llm_config)
 
 # ====================== STREAMLIT APP ======================
 st.set_page_config(page_title="Genesis HBV Sponsor Agent", layout="wide")
-st.title(" Chronic HBV Sponsor Outreach Agent")
-st.markdown("**Fully automatic research → database → outreach (with your final approval)**")
+st.title("Chronic HBV Sponsor Outreach Agent")
+st.markdown("**Research → Database → Outreach (with your final approval)**")
 
 tab1, tab2, tab3, tab4 = st.tabs(["Run Agents", "Database", "Send Emails", "Logs & Export"])
 
 with tab1:
     st.write("### Start New Research")
     query = st.text_area(
-        "Research query (you can edit)",
+        "Research query (edit if needed)",
         value="Hepatitis B treatment sponsors OR grants OR charity OR church help Nigeria OR Africa OR Christian organizations 2025-2026 site:.org OR site:.ng OR site:foundation",
         height=120
     )
-    if st.button(" Start Full Research Cycle", type="primary"):
+    if st.button("Start Full Research Cycle", type="primary"):
         with st.spinner("Agents are researching..."):
             result = user_proxy.initiate_chat(
                 manager,
@@ -227,7 +229,7 @@ with tab2:
     if not df.empty:
         st.dataframe(df, use_container_width=True)
         csv = df.to_csv(index=False).encode()
-        st.download_button(" Download as CSV", csv, "hbv_sponsors.csv", "text/csv")
+        st.download_button("Download as CSV", csv, "hbv_sponsors.csv", "text/csv")
     else:
         st.info("No sponsors in database yet. Run research first.")
 
@@ -250,7 +252,7 @@ with tab3:
         with col1:
             send_all = st.checkbox("I have reviewed all emails above", value=False)
         with col2:
-            if st.button(" SEND ALL APPROVED EMAILS NOW", type="secondary", disabled=not send_all):
+            if st.button("SEND ALL APPROVED EMAILS NOW", type="secondary", disabled=not send_all):
                 with st.spinner("Sending emails..."):
                     from_email = st.session_state.get("from_email", "")
                     password = st.session_state.get("password", "")
@@ -259,7 +261,7 @@ with tab3:
                     else:
                         results = []
                         for _, row in pending.iterrows():
-                            personalized_html = HTML_TEMPLATE.replace("{recipient_name_or_team}", row["name"] or "Team")
+                            personalized_html = HTML_TEMPLATE.format(recipient_name_or_team=row["name"] or "Team")
                             status = send_email(
                                 to_email=row["email"],
                                 subject="Request for Support – Chronic Hepatitis B (Nigeria)",
@@ -294,7 +296,7 @@ with tab4:
 
 # ====================== SIDEBAR - CREDENTIALS ======================
 with st.sidebar:
-    st.header(" Email Settings (required for sending)")
+    st.header("Email Settings (required for sending)")
     from_email = st.text_input("Your Gmail", value=os.getenv("FROM_EMAIL", ""), type="default")
     password = st.text_input("App Password (Gmail)", type="password", value=os.getenv("EMAIL_PASS", ""))
     if from_email and password:
@@ -305,13 +307,12 @@ with st.sidebar:
         st.info("Use Gmail + App Password (not regular password)")
 
     st.markdown("---")
-    st.markdown("### Instructions")
+    st.markdown("### Quick Guide")
     st.markdown("""
-    1. Set your Gmail + App Password above  
-    2. Click **Start Full Research Cycle**  
-    3. Check **Database** tab  
-    4. Review contacts → tick checkbox → **SEND ALL APPROVED EMAILS**
+    1. Set Gmail + App Password above  
+    2. Run research in Tab 1  
+    3. Check found contacts in Tab 2  
+    4. Review & send in Tab 3 (only after you approve)
     """)
-    st.markdown("**You stay in full control – nothing is sent without your click.**")
 
-log_action("App loaded successfully by Genesis Koodanga")
+log_action("App loaded successfully")
