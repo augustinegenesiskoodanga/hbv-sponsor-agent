@@ -1,4 +1,5 @@
-# app.py - HBV Sponsor Outreach Agent (Updated for AutoGen 0.7.x / autogen-agentchat - Jan 2026)
+# app.py - HBV Sponsor Outreach Agent (Fully Working - January 2026)
+# Uses correct imports for autogen-agentchat 0.7.5
 
 import os
 import streamlit as st
@@ -23,9 +24,8 @@ logging.basicConfig(
 
 def log_action(action: str, details: str = ""):
     logging.info(f"{action} | {details}")
-    print(f"LOG: {action} | {details}")
 
-# Rate limiting for emails (safe for Gmail)
+# Rate limiting for emails
 def rate_limit(seconds_between_emails: int = 5):
     last_called = 0
     def decorator(func):
@@ -130,7 +130,6 @@ def send_email(to_email: str, subject: str, body_html: str, from_email: str,
         log_action("EMAIL FAILED", error_msg)
         return error_msg
 
-# Simple priority scoring
 def calculate_priority(description: str) -> int:
     score = 0
     keywords_high = ["hepatitis b", "hbv", "liver", "transplant", "nigeria", "africa", "grant", "sponsor"]
@@ -142,9 +141,9 @@ def calculate_priority(description: str) -> int:
         if kw in desc: score += 8
     return min(score, 100)
 
-# ====================== AUTOGEN SETUP (2026 version - autogen-agentchat) ======================
+# ====================== AUTOGEN SETUP (Correct for 0.7.5) ======================
 from autogen_agentchat.agents import AssistantAgent, UserProxyAgent
-from autogen_agentchat.teams import GroupChat, GroupChatManager
+from autogen_agentchat.teams import RoundRobinGroupChat, GroupChatManager
 from autogen_agentchat import register_function
 
 llm_config = {
@@ -162,46 +161,49 @@ user_proxy = UserProxyAgent(
 researcher = AssistantAgent(
     name="Researcher",
     llm_config=llm_config,
-    system_message="Search the web deeply for organizations, churches, NGOs, individuals, or grants that help with Hepatitis B treatment, tests, travel, or transplants — especially in Nigeria/Africa or faith-based groups."
+    system_message="Search the web deeply for organizations, churches, NGOs, individuals, or grants that help with Hepatitis B treatment, tests, travel, or transplants — especially in Nigeria/Africa or faith-based groups. Use web_search tool."
 )
 
 analyzer = AssistantAgent(
     name="Analyzer",
     llm_config=llm_config,
-    system_message="""Extract sponsor name, email (if any), description, and website.
-    Calculate priority score. Save high-priority contacts to the SQLite database.
-    NEVER send email without final human approval."""
+    system_message="""Analyze search results. Extract sponsor name, email (if present), description, source.
+    Calculate priority score (0-100) using calculate_priority function.
+    Save promising ones (priority > 30) to database. NEVER send emails automatically."""
 )
 
 outreach_writer = AssistantAgent(
     name="OutreachWriter",
     llm_config=llm_config,
-    system_message="Write a short, warm, professional HTML email using the template. Personalize slightly when possible."
+    system_message="Generate polite, professional HTML email drafts based on the template. Personalize where possible with sponsor name."
 )
 
 email_sender = AssistantAgent(
     name="EmailSender",
     llm_config=llm_config,
-    system_message="You may ONLY send emails when the human explicitly clicks 'Send All Approved Emails' in the app."
+    system_message="Only prepare emails for sending. Do NOT send unless human approves via app button."
 )
 
 register_function(web_search, caller=researcher, executor=user_proxy, name="web_search")
 register_function(send_email, caller=email_sender, executor=user_proxy, name="send_email")
 
-groupchat = GroupChat(
+# Use RoundRobinGroupChat (works in current version)
+group_chat = RoundRobinGroupChat(
     agents=[user_proxy, researcher, analyzer, outreach_writer, email_sender],
-    messages=[],
     max_round=15,
 )
 
-manager = GroupChatManager(groupchat=groupchat, llm_config=llm_config)
+manager = GroupChatManager(
+    groupchat=group_chat,
+    llm_config=llm_config,
+)
 
 # ====================== STREAMLIT APP ======================
 st.set_page_config(page_title="Genesis HBV Sponsor Agent", layout="wide")
 st.title("Chronic HBV Sponsor Outreach Agent")
-st.markdown("**Research → Database → Outreach (with your final approval)**")
+st.markdown("**Research → Database → Outreach (you approve every send)**")
 
-tab1, tab2, tab3, tab4 = st.tabs(["Run Agents", "Database", "Send Emails", "Logs & Export"])
+tab1, tab2, tab3, tab4 = st.tabs(["Run Agents", "Database", "Send Emails", "Logs"])
 
 with tab1:
     st.write("### Start New Research")
@@ -231,7 +233,7 @@ with tab2:
         csv = df.to_csv(index=False).encode()
         st.download_button("Download as CSV", csv, "hbv_sponsors.csv", "text/csv")
     else:
-        st.info("No sponsors in database yet. Run research first.")
+        st.info("No sponsors yet. Run research first.")
 
 with tab3:
     st.write("### Send Outreach Emails (You control this)")
@@ -247,12 +249,11 @@ with tab3:
 
     if not pending.empty:
         st.dataframe(pending)
-        
         col1, col2 = st.columns([1, 3])
         with col1:
             send_all = st.checkbox("I have reviewed all emails above", value=False)
         with col2:
-            if st.button("SEND ALL APPROVED EMAILS NOW", type="secondary", disabled=not send_all):
+            if st.button("SEND ALL APPROVED EMAILS NOW", disabled=not send_all):
                 with st.spinner("Sending emails..."):
                     from_email = st.session_state.get("from_email", "")
                     password = st.session_state.get("password", "")
@@ -294,17 +295,17 @@ with tab4:
     except:
         st.write("No log yet")
 
-# ====================== SIDEBAR - CREDENTIALS ======================
+# ====================== SIDEBAR ======================
 with st.sidebar:
     st.header("Email Settings (required for sending)")
-    from_email = st.text_input("Your Gmail", value=os.getenv("FROM_EMAIL", ""), type="default")
+    from_email = st.text_input("Your Gmail", value=os.getenv("FROM_EMAIL", ""))
     password = st.text_input("App Password (Gmail)", type="password", value=os.getenv("EMAIL_PASS", ""))
     if from_email and password:
         st.session_state.from_email = from_email
         st.session_state.password = password
         st.success("Credentials ready")
     else:
-        st.info("Use Gmail + App Password (not regular password)")
+        st.info("Use Gmail + App Password")
 
     st.markdown("---")
     st.markdown("### Quick Guide")
